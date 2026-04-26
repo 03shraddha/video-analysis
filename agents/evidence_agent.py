@@ -18,7 +18,7 @@ import config
 logger = logging.getLogger(__name__)
 
 EVIDENCE_DIR = Path("evidence_log")
-EVIDENCE_DIR.mkdir(exist_ok=True)
+EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
 
 _jinja = Environment(loader=FileSystemLoader("templates"))
 

@@ -5,6 +5,7 @@ Bounding boxes are returned as image-fraction coordinates (0.0–1.0) so the
 browser canvas can draw them without any local ML model.
 """
 import json
+import re
 import base64
 from io import BytesIO
 from openai import AsyncOpenAI
@@ -96,7 +97,7 @@ async def run_detection_agent(image_b64: str) -> DumpingDetection:
     response = await _client.chat.completions.create(
         model="gpt-4o",
         temperature=0.1,
-        max_tokens=800,
+        max_tokens=1500,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -116,12 +117,10 @@ async def run_detection_agent(image_b64: str) -> DumpingDetection:
     )
 
     raw = response.choices[0].message.content or "{}"
-    # Strip markdown fences if model returns them anyway
+    # Strip markdown fences robustly (handles ```json, ```JSON, ``` with spaces)
     raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+    raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.IGNORECASE)
+    raw = re.sub(r'\s*```\s*$', '', raw)
     raw = raw.strip()
 
     try:
@@ -130,14 +129,29 @@ async def run_detection_agent(image_b64: str) -> DumpingDetection:
         return DumpingDetection(dumping_detected=False, confidence=0.0,
                                 activity_description="JSON parse error")
 
-    # Parse bboxes
-    bboxes = [BoundingBox(**b) for b in data.get("bboxes", [])]
+    # Parse bboxes — skip any entry that is malformed
+    bboxes = []
+    for b in data.get("bboxes", []):
+        try:
+            bboxes.append(BoundingBox(**b))
+        except Exception:
+            pass
 
     # Parse persons and attach face crops
     persons = []
     for p in data.get("persons", []):
-        bbox = BoundingBox(**p["bbox"])
-        face_bbox = BoundingBox(**p["face_bbox"]) if p.get("face_bbox") else None
+        try:
+            bbox = BoundingBox(**p["bbox"])
+        except Exception:
+            continue  # skip person with malformed bbox
+        # Guard against empty dict or missing fields in face_bbox
+        raw_face = p.get("face_bbox")
+        face_bbox = None
+        if raw_face and isinstance(raw_face, dict) and raw_face.get("w", 0) > 0:
+            try:
+                face_bbox = BoundingBox(**raw_face)
+            except Exception:
+                face_bbox = None
         person = PersonEvidence(
             bbox=bbox,
             face_bbox=face_bbox,
@@ -153,7 +167,10 @@ async def run_detection_agent(image_b64: str) -> DumpingDetection:
     # Parse vehicles and attach crops
     vehicles = []
     for v in data.get("vehicles", []):
-        bbox = BoundingBox(**v["bbox"])
+        try:
+            bbox = BoundingBox(**v["bbox"])
+        except Exception:
+            continue  # skip vehicle with malformed bbox
         vehicle = VehicleEvidence(
             bbox=bbox,
             vehicle_type=v.get("vehicle_type", ""),

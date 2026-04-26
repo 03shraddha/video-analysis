@@ -3,36 +3,36 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DUMPING WATCH // {{ location }}</title>
+<title>dumping watch // {{ location }}</title>
 <link rel="stylesheet" href="/static/terminal.css">
 </head>
 <body>
 
-<!-- ─── HEADER ──────────────────────────────────────────── -->
+<!-- HEADER -->
 <header class="header">
   <div class="header-title">
-    DUMPING&nbsp;WATCH&nbsp;<span>//&nbsp;{{ location }}</span>
+    dumping&nbsp;watch&nbsp;<span>//&nbsp;{{ location }}</span>
   </div>
   <div class="header-meta">
-    <div><span class="status-dot" id="statusDot"></span><span id="statusText">CONNECTING</span></div>
-    <div>FRAMES <span class="val" id="frameCount">0</span></div>
-    <div>INCIDENTS <span class="val" id="incidentCount">0</span></div>
+    <div><span class="status-dot" id="statusDot"></span><span id="statusText">connecting</span></div>
+    <div>frames <span class="val" id="frameCount">0</span></div>
+    <div>incidents <span class="val" id="incidentCount">0</span></div>
     <div id="clock" class="val">--:--:--</div>
   </div>
 </header>
 
-<!-- ─── MAIN LAYOUT ─────────────────────────────────────── -->
+<!-- MAIN LAYOUT -->
 <div class="layout">
 
   <!-- LEFT: live feed + canvas overlay -->
   <div class="feed-pane">
-    <div class="feed-label">LIVE&nbsp;FEED&nbsp;&nbsp;▸&nbsp;&nbsp;{{ location }}</div>
+    <div class="feed-label">live feed &nbsp;&#9656;&nbsp; {{ location }}</div>
     <div class="feed-wrap" id="feedWrap">
       <video id="video" autoplay muted playsinline></video>
       <canvas id="overlay"></canvas>
       <div class="feed-placeholder" id="feedPlaceholder">
-        AWAITING CAMERA PERMISSION<br>
-        <small style="font-size:10px;color:#333">click anywhere to start</small>
+        awaiting camera permission<br>
+        <small>click anywhere to start</small>
       </div>
     </div>
   </div>
@@ -42,22 +42,22 @@
 
     <!-- Detection Panel -->
     <div class="detection-panel" id="detectionPanel">
-      <div class="panel-title">DETECTION&nbsp;PANEL</div>
+      <div class="panel-title">detection panel</div>
       <div class="crops-row">
         <div>
           <div class="crop-box" id="faceBox">
-            <div class="no-img">NO<br>FACE</div>
+            <div class="no-img">no<br>face</div>
           </div>
-          <div class="crop-label">FACE</div>
+          <div class="crop-label">face</div>
         </div>
         <div>
           <div class="crop-box" id="vehicleBox">
-            <div class="no-img">NO<br>VEHICLE</div>
+            <div class="no-img">no<br>vehicle</div>
           </div>
-          <div class="crop-label">VEHICLE</div>
+          <div class="crop-label">vehicle</div>
         </div>
         <div class="detail-grid" id="detailGrid">
-          <div class="no-detection">—&nbsp;no&nbsp;activity&nbsp;—</div>
+          <div class="no-detection">waiting...</div>
         </div>
       </div>
     </div>
@@ -66,30 +66,30 @@
     <div class="pipeline">
       <div class="pipe-step">
         <div class="pipe-dot" id="dot-Capture"></div>
-        <span class="pipe-name">CAPTURE</span>
+        <span class="pipe-name">capture</span>
       </div>
-      <span class="pipe-arrow">→</span>
+      <span class="pipe-arrow">&#8594;</span>
       <div class="pipe-step">
         <div class="pipe-dot" id="dot-Vision"></div>
-        <span class="pipe-name">VISION</span>
+        <span class="pipe-name">vision</span>
       </div>
       <span class="pipe-arrow">+</span>
       <div class="pipe-step">
         <div class="pipe-dot" id="dot-Audio"></div>
-        <span class="pipe-name">AUDIO</span>
+        <span class="pipe-name">audio</span>
       </div>
-      <span class="pipe-arrow">→</span>
+      <span class="pipe-arrow">&#8594;</span>
       <div class="pipe-step">
         <div class="pipe-dot" id="dot-Evidence"></div>
-        <span class="pipe-name">EVIDENCE</span>
+        <span class="pipe-name">evidence</span>
       </div>
     </div>
 
     <!-- Incident log -->
-    <div class="log-label">INCIDENT&nbsp;LOG</div>
+    <div class="log-label">incident log</div>
     <div class="log-pane" id="logPane">
       <div class="log-entry clear">
-        <span class="log-time">—</span>
+        <span class="log-time">-</span>
         <span class="log-body">monitoring started</span>
       </div>
     </div>
@@ -112,11 +112,11 @@ let ws;
 function connectWS() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => {
-    document.getElementById('statusText').textContent = 'MONITORING';
+    document.getElementById('statusText').textContent = 'monitoring';
     document.getElementById('statusDot').style.background = 'var(--green)';
   };
   ws.onclose = () => {
-    document.getElementById('statusText').textContent = 'RECONNECTING';
+    document.getElementById('statusText').textContent = 'reconnecting';
     document.getElementById('statusDot').style.background = 'var(--amber)';
     setTimeout(connectWS, 2000);
   };
@@ -158,20 +158,21 @@ function drawBoxes(boxes) {
     const y = box.y * overlay.height;
     const w = box.w * overlay.width;
     const h = box.h * overlay.height;
-    const color = box.label === 'person' ? '#ff4444'
-                : box.label === 'face'   ? '#ff8800'
-                : '#f5a623';
+    // Light-theme colors: person=red, face=blue, vehicle=amber
+    const color = box.label === 'person' ? '#e53e3e'
+                : box.label === 'face'   ? '#3182ce'
+                : '#d69e2e';
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(x, y, w, h);
-    // Label chip
+    // Label chip — filled with color, white text so it reads on light bg
     ctx.fillStyle = color;
-    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.font = '11px JetBrains Mono, monospace';
     const label = `${box.label} ${Math.round(box.confidence * 100)}%`;
     const tw = ctx.measureText(label).width;
-    ctx.fillRect(x, y - 14, tw + 8, 14);
-    ctx.fillStyle = '#000';
-    ctx.fillText(label, x + 4, y - 3);
+    ctx.fillRect(x, y - 16, tw + 10, 16);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(label, x + 5, y - 4);
   });
 }
 
@@ -187,7 +188,7 @@ function updateDetectionPanel(msg) {
   if (person && person.face_b64) {
     faceBox.innerHTML = `<img src="data:image/jpeg;base64,${person.face_b64}" alt="face">`;
   } else {
-    faceBox.innerHTML = `<div class="no-img">NO<br>FACE</div>`;
+    faceBox.innerHTML = `<div class="no-img">no<br>face</div>`;
   }
 
   // Vehicle crop
@@ -195,25 +196,25 @@ function updateDetectionPanel(msg) {
   if (vehicle && vehicle.vehicle_b64) {
     vehicleBox.innerHTML = `<img src="data:image/jpeg;base64,${vehicle.vehicle_b64}" alt="vehicle">`;
   } else {
-    vehicleBox.innerHTML = `<div class="no-img">NO<br>VEHICLE</div>`;
+    vehicleBox.innerHTML = `<div class="no-img">no<br>vehicle</div>`;
   }
 
   if (!det.dumping_detected) {
-    grid.innerHTML = `<div class="no-detection">—&nbsp;no&nbsp;activity&nbsp;—</div>`;
+    grid.innerHTML = `<div class="no-detection">waiting...</div>`;
     return;
   }
 
   // Build detail rows
   let rows = '';
   if (person) {
-    rows += row('CLOTHING', person.clothing || '—', '');
-    rows += row('PERSON', person.physical || '—', '');
+    rows += row('CLOTHING', person.clothing || '-', '');
+    rows += row('PERSON', person.physical || '-', '');
   }
   if (vehicle) {
-    rows += row('PLATE', vehicle.plate || '—', vehicle.plate ? 'plate' : '');
-    rows += row('VEHICLE', vehicle.type || '—', '');
+    rows += row('PLATE', vehicle.plate || '-', vehicle.plate ? 'plate' : '');
+    rows += row('VEHICLE', vehicle.type || '-', '');
   }
-  rows += row('AUDIO', msg.audio ? msg.audio.sound_type : '—', '');
+  rows += row('AUDIO', msg.audio ? msg.audio.sound_type : '-', '');
   rows += row('CONF', `${Math.round(det.confidence * 100)}%`, 'highlight');
 
   grid.innerHTML = rows;
@@ -243,8 +244,8 @@ function addIncidentRow(msg) {
     ? `<span class="log-plate">${msg.plate}</span>&nbsp;&nbsp;`
     : '';
   const email = msg.email_sent
-    ? `<span class="log-email">email&nbsp;✓</span>`
-    : `<span class="log-email failed">email&nbsp;✗</span>`;
+    ? `<span class="log-email">email&nbsp;&#10003;</span>`
+    : `<span class="log-email failed">email&nbsp;&#10007;</span>`;
   const person = msg.person_clothing ? `${msg.person_clothing.slice(0,30)}&hellip;&nbsp;&nbsp;` : '';
 
   const div = document.createElement('div');
@@ -279,7 +280,7 @@ async function startCamera() {
     // Frame + audio send loop
     setInterval(captureAndSend, CAPTURE_INTERVAL_MS);
   } catch (err) {
-    document.getElementById('feedPlaceholder').textContent = `CAMERA ERROR: ${err.message}`;
+    document.getElementById('feedPlaceholder').textContent = `camera error: ${err.message}`;
   }
 }
 
@@ -299,7 +300,14 @@ async function captureAndSend() {
     const blob = new Blob(audioChunks, { type: 'audio/webm' });
     audioChunks = [];
     const buf = await blob.arrayBuffer();
-    audioB64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    // Chunked encoding — avoids "Maximum call stack size exceeded" for large audio buffers
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    audioB64 = btoa(binary);
   }
 
   frameCount++;
@@ -315,7 +323,7 @@ async function captureAndSend() {
         session_id: 'browser-session',
       }),
     });
-  } catch (_) { /* network hiccup — skip frame */ }
+  } catch (_) { /* network hiccup - skip frame */ }
 }
 
 // Start on first click (browser autoplay policy)

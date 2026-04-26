@@ -49,7 +49,10 @@ class WSManager:
         self.connections.append(ws)
 
     def disconnect(self, ws: WebSocket):
-        self.connections.remove(ws)
+        try:
+            self.connections.remove(ws)
+        except ValueError:
+            pass
 
     async def broadcast(self, data: dict):
         dead = []

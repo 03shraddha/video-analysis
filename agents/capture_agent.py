@@ -5,7 +5,7 @@ Pure Python (Pillow), no LLM call. Runs on every frame at 2 FPS.
 """
 import base64
 from io import BytesIO
-from PIL import Image, ImageFilter
+from PIL import Image, ImageChops, ImageFilter, ImageStat
 from models.schemas import CaptureResult
 
 # Pixel-difference threshold: higher = less sensitive to motion
@@ -29,12 +29,8 @@ def detect_motion(curr_b64: str, prev_b64: str | None) -> tuple[bool, float]:
     curr = _b64_to_gray(curr_b64)
     prev = _b64_to_gray(prev_b64)
 
-    diff = 0.0
-    curr_px = list(curr.getdata())
-    prev_px = list(prev.getdata())
-    for c, p in zip(curr_px, prev_px):
-        diff += abs(c - p)
-    avg_diff = diff / len(curr_px)
+    diff = ImageChops.difference(curr, prev)
+    avg_diff = ImageStat.Stat(diff).mean[0]
     return avg_diff >= MOTION_THRESHOLD, round(avg_diff, 2)
 
 

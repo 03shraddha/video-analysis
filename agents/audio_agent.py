@@ -4,6 +4,7 @@ Whisper handles Hindi, Marathi, and other regional languages natively.
 """
 import base64
 import json
+import re
 from openai import AsyncOpenAI
 from models.schemas import AudioClue
 import config
@@ -48,7 +49,7 @@ async def run_audio_agent(audio_b64: str) -> AudioClue:
     try:
         import io
         audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "audio.wav"
+        audio_file.name = "audio.webm"
         transcript_response = await _client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
@@ -70,10 +71,9 @@ async def run_audio_agent(audio_b64: str) -> AudioClue:
     )
 
     raw = (classify_response.choices[0].message.content or "{}").strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+    # Remove markdown code fences robustly (handles ```json, ```JSON, ``` with spaces)
+    raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.IGNORECASE)
+    raw = re.sub(r'\s*```\s*$', '', raw)
 
     try:
         data = json.loads(raw.strip())
