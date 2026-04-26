@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DUMPING WATCH // {{ location }}</title>
+<link rel="stylesheet" href="/static/terminal.css">
+</head>
+<body>
+
+<!-- ─── HEADER ──────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-title">
+    DUMPING&nbsp;WATCH&nbsp;<span>//&nbsp;{{ location }}</span>
+  </div>
+  <div class="header-meta">
+    <div><span class="status-dot" id="statusDot"></span><span id="statusText">CONNECTING</span></div>
+    <div>FRAMES <span class="val" id="frameCount">0</span></div>
+    <div>INCIDENTS <span class="val" id="incidentCount">0</span></div>
+    <div id="clock" class="val">--:--:--</div>
+  </div>
+</header>
+
+<!-- ─── MAIN LAYOUT ─────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- LEFT: live feed + canvas overlay -->
+  <div class="feed-pane">
+    <div class="feed-label">LIVE&nbsp;FEED&nbsp;&nbsp;▸&nbsp;&nbsp;{{ location }}</div>
+    <div class="feed-wrap" id="feedWrap">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div class="feed-placeholder" id="feedPlaceholder">
+        AWAITING CAMERA PERMISSION<br>
+        <small style="font-size:10px;color:#333">click anywhere to start</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: detection panel + pipeline + log -->
+  <div class="right-col">
+
+    <!-- Detection Panel -->
+    <div class="detection-panel" id="detectionPanel">
+      <div class="panel-title">DETECTION&nbsp;PANEL</div>
+      <div class="crops-row">
+        <div>
+          <div class="crop-box" id="faceBox">
+            <div class="no-img">NO<br>FACE</div>
+          </div>
+          <div class="crop-label">FACE</div>
+        </div>
+        <div>
+          <div class="crop-box" id="vehicleBox">
+            <div class="no-img">NO<br>VEHICLE</div>
+          </div>
+          <div class="crop-label">VEHICLE</div>
+        </div>
+        <div class="detail-grid" id="detailGrid">
+          <div class="no-detection">—&nbsp;no&nbsp;activity&nbsp;—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pipeline status -->
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-dot" id="dot-Capture"></div>
+        <span class="pipe-name">CAPTURE</span>
+      </div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step">
+        <div class="pipe-dot" id="dot-Vision"></div>
+        <span class="pipe-name">VISION</span>
+      </div>
+      <span class="pipe-arrow">+</span>
+      <div class="pipe-step">
+        <div class="pipe-dot" id="dot-Audio"></div>
+        <span class="pipe-name">AUDIO</span>
+      </div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step">
+        <div class="pipe-dot" id="dot-Evidence"></div>
+        <span class="pipe-name">EVIDENCE</span>
+      </div>
+    </div>
+
+    <!-- Incident log -->
+    <div class="log-label">INCIDENT&nbsp;LOG</div>
+    <div class="log-pane" id="logPane">
+      <div class="log-entry clear">
+        <span class="log-time">—</span>
+        <span class="log-body">monitoring started</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ─── Clock ──────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toTimeString().slice(0,8);
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─── WebSocket ───────────────────────────────────────────
+let ws;
+function connectWS() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    document.getElementById('statusText').textContent = 'MONITORING';
+    document.getElementById('statusDot').style.background = 'var(--green)';
+  };
+  ws.onclose = () => {
+    document.getElementById('statusText').textContent = 'RECONNECTING';
+    document.getElementById('statusDot').style.background = 'var(--amber)';
+    setTimeout(connectWS, 2000);
+  };
+  ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+}
+connectWS();
+
+function handleMessage(msg) {
+  if (msg.type === 'agent_status') updatePipeDot(msg.agent, msg.state);
+  if (msg.type === 'bbox_update')  { drawBoxes(msg.boxes); updateDetectionPanel(msg); }
+  if (msg.type === 'incident')     addIncidentRow(msg);
+}
+
+// ─── Pipeline dots ───────────────────────────────────────
+function updatePipeDot(agent, state) {
+  const dot = document.getElementById(`dot-${agent}`);
+  if (!dot) return;
+  dot.className = 'pipe-dot';
+  if (state === 'processing') dot.classList.add('busy');
+  else if (state === 'done' || state === 'ANALYZE') dot.classList.add('ok');
+  else dot.classList.add('skip');
+}
+
+// ─── Bounding box canvas ─────────────────────────────────
+const video   = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const ctx     = overlay.getContext('2d');
+
+function syncCanvas() {
+  overlay.width  = video.videoWidth  || overlay.parentElement.clientWidth;
+  overlay.height = video.videoHeight || overlay.parentElement.clientHeight;
+}
+
+function drawBoxes(boxes) {
+  syncCanvas();
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  boxes.forEach(box => {
+    const x = box.x * overlay.width;
+    const y = box.y * overlay.height;
+    const w = box.w * overlay.width;
+    const h = box.h * overlay.height;
+    const color = box.label === 'person' ? '#ff4444'
+                : box.label === 'face'   ? '#ff8800'
+                : '#f5a623';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, w, h);
+    // Label chip
+    ctx.fillStyle = color;
+    ctx.font = '10px JetBrains Mono, monospace';
+    const label = `${box.label} ${Math.round(box.confidence * 100)}%`;
+    const tw = ctx.measureText(label).width;
+    ctx.fillRect(x, y - 14, tw + 8, 14);
+    ctx.fillStyle = '#000';
+    ctx.fillText(label, x + 4, y - 3);
+  });
+}
+
+// ─── Detection panel update ──────────────────────────────
+function updateDetectionPanel(msg) {
+  const det = msg.detection;
+  const faceBox    = document.getElementById('faceBox');
+  const vehicleBox = document.getElementById('vehicleBox');
+  const grid       = document.getElementById('detailGrid');
+
+  // Face crop
+  const person = det.persons && det.persons[0];
+  if (person && person.face_b64) {
+    faceBox.innerHTML = `<img src="data:image/jpeg;base64,${person.face_b64}" alt="face">`;
+  } else {
+    faceBox.innerHTML = `<div class="no-img">NO<br>FACE</div>`;
+  }
+
+  // Vehicle crop
+  const vehicle = det.vehicles && det.vehicles[0];
+  if (vehicle && vehicle.vehicle_b64) {
+    vehicleBox.innerHTML = `<img src="data:image/jpeg;base64,${vehicle.vehicle_b64}" alt="vehicle">`;
+  } else {
+    vehicleBox.innerHTML = `<div class="no-img">NO<br>VEHICLE</div>`;
+  }
+
+  if (!det.dumping_detected) {
+    grid.innerHTML = `<div class="no-detection">—&nbsp;no&nbsp;activity&nbsp;—</div>`;
+    return;
+  }
+
+  // Build detail rows
+  let rows = '';
+  if (person) {
+    rows += row('CLOTHING', person.clothing || '—', '');
+    rows += row('PERSON', person.physical || '—', '');
+  }
+  if (vehicle) {
+    rows += row('PLATE', vehicle.plate || '—', vehicle.plate ? 'plate' : '');
+    rows += row('VEHICLE', vehicle.type || '—', '');
+  }
+  rows += row('AUDIO', msg.audio ? msg.audio.sound_type : '—', '');
+  rows += row('CONF', `${Math.round(det.confidence * 100)}%`, 'highlight');
+
+  grid.innerHTML = rows;
+
+  // Flash detection panel on dump
+  document.getElementById('detectionPanel').classList.remove('flash');
+  void document.getElementById('detectionPanel').offsetWidth; // reflow
+  document.getElementById('detectionPanel').classList.add('flash');
+}
+
+function row(key, val, cls) {
+  return `<div class="detail-row">
+    <span class="detail-key">${key}</span>
+    <span class="detail-val ${cls}">${val}</span>
+  </div>`;
+}
+
+// ─── Incident log row ────────────────────────────────────
+let incidentCount = 0;
+function addIncidentRow(msg) {
+  incidentCount = msg.incident_count || ++incidentCount;
+  document.getElementById('incidentCount').textContent = incidentCount;
+
+  const logPane = document.getElementById('logPane');
+  const time = new Date(msg.timestamp).toTimeString().slice(0,8);
+  const plate = msg.plate
+    ? `<span class="log-plate">${msg.plate}</span>&nbsp;&nbsp;`
+    : '';
+  const email = msg.email_sent
+    ? `<span class="log-email">email&nbsp;✓</span>`
+    : `<span class="log-email failed">email&nbsp;✗</span>`;
+  const person = msg.person_clothing ? `${msg.person_clothing.slice(0,30)}&hellip;&nbsp;&nbsp;` : '';
+
+  const div = document.createElement('div');
+  div.className = 'log-entry incident';
+  div.innerHTML = `
+    <span class="log-time">${time}</span>
+    <span class="log-body">
+      <span class="log-badge dump">DUMP</span>
+      ${plate}${person}${email}
+    </span>`;
+  logPane.prepend(div);
+}
+
+// ─── WebRTC capture ──────────────────────────────────────
+let stream = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let frameCount = 0;
+const CAPTURE_INTERVAL_MS = 700;
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    video.srcObject = stream;
+    document.getElementById('feedPlaceholder').style.display = 'none';
+
+    // Audio capture
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.start(CAPTURE_INTERVAL_MS);
+
+    // Frame + audio send loop
+    setInterval(captureAndSend, CAPTURE_INTERVAL_MS);
+  } catch (err) {
+    document.getElementById('feedPlaceholder').textContent = `CAMERA ERROR: ${err.message}`;
+  }
+}
+
+async function captureAndSend() {
+  if (!video.videoWidth) return;
+
+  // Capture frame
+  const canvas = document.createElement('canvas');
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const imageB64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+  // Collect audio
+  let audioB64 = '';
+  if (audioChunks.length > 0) {
+    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+    audioChunks = [];
+    const buf = await blob.arrayBuffer();
+    audioB64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+  }
+
+  frameCount++;
+  document.getElementById('frameCount').textContent = frameCount;
+
+  try {
+    await fetch('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_base64: imageB64,
+        audio_base64: audioB64,
+        session_id: 'browser-session',
+      }),
+    });
+  } catch (_) { /* network hiccup — skip frame */ }
+}
+
+// Start on first click (browser autoplay policy)
+document.addEventListener('click', () => {
+  if (!stream) startCamera();
+}, { once: true });
+
+// Also try auto-start
+startCamera();
+</script>
+</body>
+</html>
