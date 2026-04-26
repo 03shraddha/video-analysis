@@ -18,10 +18,10 @@ flowchart LR
 
 | Agent | Model | Job |
 |---|---|---|
-| Capture | Python only | Pixel-diff motion check. Skips ~90% of empty frames at zero API cost. |
+| Capture | Python only | Pixel-diff motion + blur/brightness checks. Skips dark, blurry, and empty frames before any API call. |
 | Detection | GPT-4o Vision | Draws bounding boxes, reads license plates, crops face and vehicle. |
 | Audio | Whisper | Classifies engine sounds, bag drops, voices in any Indian language. |
-| Evidence | GPT-4o | Saves face/vehicle crops + JSON. Fires HTML email via SendGrid. |
+| Evidence | Python | Saves face/vehicle crops + JSON. Detects repeat offenders (plate + clothing match). Classifies severity (CRITICAL/HIGH/MEDIUM/LOW) and routes to the right authority. Fires HTML email via SendGrid. |
 
 ## Stack
 
@@ -46,7 +46,7 @@ Open `localhost:8000` and grant camera access.
 
 ## Keys needed
 
-`OPENAI_API_KEY` / `SENDGRID_API_KEY` / `RECIPIENT_EMAIL` / `FROM_EMAIL` / `LOCATION_LABEL`
+`OPENAI_API_KEY` / `SENDGRID_API_KEY` / `RECIPIENT_EMAIL` / `FROM_EMAIL` / `LOCATION_LABEL` / `ESCALATION_EMAIL` (optional - receives CRITICAL/HIGH severity alerts; falls back to `RECIPIENT_EMAIL`)
 
 ## UI
 
