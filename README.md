@@ -19,8 +19,8 @@ flowchart LR
 | Agent | Model | Job |
 |---|---|---|
 | Capture | Python only | Pixel-diff motion + blur/brightness checks. Skips dark, blurry, and empty frames before any API call. |
-| Detection | GPT-4o Vision | Draws bounding boxes, reads license plates, crops face and vehicle. |
-| Audio | Whisper | Classifies engine sounds, bag drops, voices in any Indian language. |
+| Detection | GPT-4.1 Vision | Draws bounding boxes, reads license plates, crops face and vehicle. |
+| Audio | gpt-4o-transcribe + gpt-4.1-mini | Transcribes audio in any Indian language; classifies engine sounds, bag drops, voices. |
 | Evidence | Python | Saves face/vehicle crops + JSON. Detects repeat offenders (plate + clothing match). Classifies severity (CRITICAL/HIGH/MEDIUM/LOW) and routes to the right authority. Fires HTML email via SendGrid. |
 
 ## Stack
@@ -29,8 +29,8 @@ flowchart LR
 |---|---|
 | Backend | FastAPI + Uvicorn |
 | Orchestration | OpenAI Agents SDK |
-| Vision | GPT-4o (high detail mode) |
-| Audio | Whisper API |
+| Vision | GPT-4.1 (high detail mode) |
+| Audio | gpt-4o-transcribe + gpt-4.1-mini |
 | Alerts | SendGrid |
 | Frontend | WebRTC + Canvas (no framework) |
 
