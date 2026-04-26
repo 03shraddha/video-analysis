@@ -51,7 +51,7 @@ async def run_audio_agent(audio_b64: str) -> AudioClue:
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = "audio.webm"
         transcript_response = await _client.audio.transcriptions.create(
-            model="whisper-1",
+            model="gpt-4o-transcribe",
             file=audio_file,
             response_format="text",
         )
@@ -61,7 +61,7 @@ async def run_audio_agent(audio_b64: str) -> AudioClue:
 
     # Classify the transcription
     classify_response = await _client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         temperature=0.0,
         max_tokens=150,
         messages=[
