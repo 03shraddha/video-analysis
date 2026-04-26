@@ -1,6 +1,7 @@
 from __future__ import annotations
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from pydantic import BaseModel
 
 
@@ -62,6 +63,8 @@ class CaptureResult(BaseModel):
     reason: str = ""
     image_b64: str = ""
     audio_b64: str = ""
+    blur_score: float = 0.0         # populated by capture agent; higher = blurrier
+    brightness_score: float = 0.0   # populated by capture agent; used to log skip reason
 
 
 class PipelineResult(BaseModel):
@@ -83,3 +86,25 @@ class EvidencePackage(BaseModel):
     vehicle_crop_path: str = ""
     email_sent: bool = False
     email_recipient: str = ""
+    repeat_info: dict[str, Any] = {}    # e.g. {"plate": "MH12AB3456", "seen_count": 3}
+    severity_level: str = "LOW"         # "LOW" | "MEDIUM" | "HIGH"
+
+
+@dataclass
+class SessionContext:
+    """Per-camera session state. Replaces module-level globals in app.py.
+    Compatible with OpenAI Agents SDK RunContextWrapper pattern.
+    """
+    session_id: str
+    prev_frame_b64: str | None = None
+    incident_count: int = 0
+    frame_count: int = 0
+    recent_plates: list[str] = field(default_factory=list)        # last 20 seen plates for dedup
+    recent_incident_ids: list[str] = field(default_factory=list)  # last 50 incident IDs
+
+    def record_plate(self, plate: str | None) -> None:
+        if plate:
+            self.recent_plates = (self.recent_plates + [plate])[-20:]
+
+    def record_incident(self, incident_id: str) -> None:
+        self.recent_incident_ids = (self.recent_incident_ids + [incident_id])[-50:]

@@ -11,6 +11,9 @@ from models.schemas import CaptureResult
 # Pixel-difference threshold: higher = less sensitive to motion
 MOTION_THRESHOLD = 12
 MIN_IMAGE_BYTES = 5000  # reject tiny/corrupt images
+BLUR_VARIANCE_THRESHOLD = 100.0  # edge variance below this = blurry frame
+MIN_BRIGHTNESS = 20    # 0-255: below this = too dark / lens covered
+MAX_BRIGHTNESS = 240   # 0-255: above this = overexposed
 
 
 def _b64_to_gray(b64: str) -> Image.Image:
@@ -45,6 +48,26 @@ def validate_image(b64: str) -> tuple[bool, str]:
         width, height = img.size
         if width < 100 or height < 100:
             return False, f"resolution too low ({width}x{height})"
+
+        # Convert once to grayscale — reused by both quality checks below
+        gray = img.convert("L")
+        pixels = list(gray.getdata())
+
+        # Brightness check: reject frames that are too dark or overexposed
+        mean_brightness = sum(pixels) / len(pixels)
+        if mean_brightness < MIN_BRIGHTNESS:
+            return False, f"too_dark (brightness={round(mean_brightness, 1)})"
+        if mean_brightness > MAX_BRIGHTNESS:
+            return False, f"overexposed (brightness={round(mean_brightness, 1)})"
+
+        # Blur check: low edge variance (Laplacian-based) = blurry frame
+        edges = gray.filter(ImageFilter.FIND_EDGES)
+        edge_px = list(edges.getdata())
+        edge_mean = sum(edge_px) / len(edge_px)
+        variance = sum((p - edge_mean) ** 2 for p in edge_px) / len(edge_px)
+        if variance < BLUR_VARIANCE_THRESHOLD:
+            return False, f"too_blurry (variance={round(variance, 1)})"
+
         return True, "ok"
     except Exception as e:
         return False, str(e)

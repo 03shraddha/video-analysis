@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
 from pydantic import BaseModel
 
+from agents import trace
 from agents.capture_agent import run_capture_agent
 from agents.detection_agent import run_detection_agent
 from agents.audio_agent import run_audio_agent
@@ -86,95 +87,96 @@ async def analyze(req: AnalyzeRequest):
     global _prev_frame_b64, _incident_count, _frame_count
     _frame_count += 1
 
-    frame = IncomingFrame(
-        image_base64=req.image_base64,
-        audio_base64=req.audio_base64,
-        timestamp=datetime.utcnow(),
-        session_id=req.session_id,
-        location_label=config.LOCATION_LABEL,
-    )
+    with trace("dumping-watch-pipeline", metadata={"session_id": req.session_id, "location": config.LOCATION_LABEL, "frame": _frame_count}):
+        frame = IncomingFrame(
+            image_base64=req.image_base64,
+            audio_base64=req.audio_base64,
+            timestamp=datetime.utcnow(),
+            session_id=req.session_id,
+            location_label=config.LOCATION_LABEL,
+        )
 
-    # Stage 1: Capture / motion check (no API call)
-    capture = run_capture_agent(frame.image_base64, frame.audio_base64, _prev_frame_b64)
-    _prev_frame_b64 = frame.image_base64
+        # Stage 1: Capture / motion check (no API call)
+        capture = run_capture_agent(frame.image_base64, frame.audio_base64, _prev_frame_b64)
+        _prev_frame_b64 = frame.image_base64
 
-    await ws_manager.broadcast({"type": "agent_status", "agent": "Capture", "state": capture.motion_flag})
+        await ws_manager.broadcast({"type": "agent_status", "agent": "Capture", "state": capture.motion_flag})
 
-    if capture.motion_flag == "SKIP":
-        return {"skipped": True, "reason": capture.reason, "frames": _frame_count}
+        if capture.motion_flag == "SKIP":
+            return {"skipped": True, "reason": capture.reason, "frames": _frame_count}
 
-    # Stage 2: Vision + Audio in parallel
-    await ws_manager.broadcast({"type": "agent_status", "agent": "Vision", "state": "processing"})
-    await ws_manager.broadcast({"type": "agent_status", "agent": "Audio", "state": "processing"})
+        # Stage 2: Vision + Audio in parallel
+        await ws_manager.broadcast({"type": "agent_status", "agent": "Vision", "state": "processing"})
+        await ws_manager.broadcast({"type": "agent_status", "agent": "Audio", "state": "processing"})
 
-    detection, audio = await asyncio.gather(
-        run_detection_agent(capture.image_b64),
-        run_audio_agent(capture.audio_b64),
-    )
+        detection, audio = await asyncio.gather(
+            run_detection_agent(capture.image_b64),
+            run_audio_agent(capture.audio_b64),
+        )
 
-    # Broadcast bbox updates for live canvas overlay
-    await ws_manager.broadcast({
-        "type": "bbox_update",
-        "boxes": [b.model_dump() for b in detection.bboxes],
-        "detection": {
-            "dumping_detected": detection.dumping_detected,
-            "confidence": detection.confidence,
-            "activity": detection.activity_description,
-            "persons": [
-                {
-                    "clothing": p.clothing_description,
-                    "physical": p.physical_description,
-                    "face_b64": p.face_crop_b64,
-                }
-                for p in detection.persons
-            ],
-            "vehicles": [
-                {
-                    "type": v.vehicle_type,
-                    "plate": v.license_plate,
-                    "plate_confidence": v.plate_confidence,
-                    "vehicle_b64": v.vehicle_crop_b64,
-                }
-                for v in detection.vehicles
-            ],
-        },
-        "audio": {"sound_type": audio.sound_type, "transcript": audio.transcript},
-    })
-
-    await ws_manager.broadcast({"type": "agent_status", "agent": "Vision", "state": "done"})
-    await ws_manager.broadcast({"type": "agent_status", "agent": "Audio", "state": "done"})
-
-    # Stage 3: Evidence packaging (only if dumping confirmed)
-    if detection.dumping_detected and detection.confidence >= config.CONFIDENCE_THRESHOLD:
-        await ws_manager.broadcast({"type": "agent_status", "agent": "Evidence", "state": "processing"})
-
-        evidence = run_evidence_agent(frame.image_base64, detection, audio)
-        _incident_count += 1
-
+        # Broadcast bbox updates for live canvas overlay
         await ws_manager.broadcast({
-            "type": "incident",
-            "incident_id": evidence.incident_id,
-            "timestamp": evidence.timestamp.isoformat(),
-            "location": evidence.location,
-            "activity": detection.activity_description,
-            "material": detection.dumped_material,
-            "plate": detection.vehicles[0].license_plate if detection.vehicles else None,
-            "person_clothing": detection.persons[0].clothing_description if detection.persons else "",
-            "face_b64": detection.persons[0].face_crop_b64 if detection.persons else None,
-            "vehicle_b64": detection.vehicles[0].vehicle_crop_b64 if detection.vehicles else None,
-            "email_sent": evidence.email_sent,
-            "incident_count": _incident_count,
+            "type": "bbox_update",
+            "boxes": [b.model_dump() for b in detection.bboxes],
+            "detection": {
+                "dumping_detected": detection.dumping_detected,
+                "confidence": detection.confidence,
+                "activity": detection.activity_description,
+                "persons": [
+                    {
+                        "clothing": p.clothing_description,
+                        "physical": p.physical_description,
+                        "face_b64": p.face_crop_b64,
+                    }
+                    for p in detection.persons
+                ],
+                "vehicles": [
+                    {
+                        "type": v.vehicle_type,
+                        "plate": v.license_plate,
+                        "plate_confidence": v.plate_confidence,
+                        "vehicle_b64": v.vehicle_crop_b64,
+                    }
+                    for v in detection.vehicles
+                ],
+            },
+            "audio": {"sound_type": audio.sound_type, "transcript": audio.transcript},
         })
 
-        await ws_manager.broadcast({"type": "agent_status", "agent": "Evidence", "state": "done"})
-        return {"incident_filed": True, "incident_id": evidence.incident_id, "email_sent": evidence.email_sent}
+        await ws_manager.broadcast({"type": "agent_status", "agent": "Vision", "state": "done"})
+        await ws_manager.broadcast({"type": "agent_status", "agent": "Audio", "state": "done"})
 
-    return {
-        "incident_filed": False,
-        "dumping_detected": detection.dumping_detected,
-        "confidence": detection.confidence,
-        "frames": _frame_count,
-    }
+        # Stage 3: Evidence packaging (only if dumping confirmed)
+        if detection.dumping_detected and detection.confidence >= config.CONFIDENCE_THRESHOLD:
+            await ws_manager.broadcast({"type": "agent_status", "agent": "Evidence", "state": "processing"})
+
+            evidence = run_evidence_agent(frame.image_base64, detection, audio)
+            _incident_count += 1
+
+            await ws_manager.broadcast({
+                "type": "incident",
+                "incident_id": evidence.incident_id,
+                "timestamp": evidence.timestamp.isoformat(),
+                "location": evidence.location,
+                "activity": detection.activity_description,
+                "material": detection.dumped_material,
+                "plate": detection.vehicles[0].license_plate if detection.vehicles else None,
+                "person_clothing": detection.persons[0].clothing_description if detection.persons else "",
+                "face_b64": detection.persons[0].face_crop_b64 if detection.persons else None,
+                "vehicle_b64": detection.vehicles[0].vehicle_crop_b64 if detection.vehicles else None,
+                "email_sent": evidence.email_sent,
+                "incident_count": _incident_count,
+            })
+
+            await ws_manager.broadcast({"type": "agent_status", "agent": "Evidence", "state": "done"})
+            return {"incident_filed": True, "incident_id": evidence.incident_id, "email_sent": evidence.email_sent}
+
+        return {
+            "incident_filed": False,
+            "dumping_detected": detection.dumping_detected,
+            "confidence": detection.confidence,
+            "frames": _frame_count,
+        }
 
 
 @app.get("/evidence")
