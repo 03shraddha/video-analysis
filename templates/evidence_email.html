@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <style>
   body  { background:#0d0d0d; color:#d4d4d4; font-family:'Courier New',monospace; font-size:12px; margin:0; padding:0; }
-  .wrap { max-width:580px; margin:0 auto; padding:14px; }
+  .wrap { width:100%; max-width:100%; margin:0; padding:14px; box-sizing:border-box; }
   .k    { color:#666; font-size:10px; padding:3px 8px 3px 0; width:70px; vertical-align:top; white-space:nowrap; }
   .v    { color:#ccc; font-size:10px; padding:3px 0; vertical-align:top; }
   .plate{ color:#f5a623; font-weight:bold; font-size:13px; letter-spacing:0.1em; }
   .vaahan { color:#4a9eff; font-size:10px; }
-  img.crop { width:110px; height:110px; object-fit:cover; border:1px solid #222; display:block; }
-  img.snap { width:100%; border:1px solid #1a1a1a; display:block; max-height:220px; object-fit:cover; }
-  .no-img { width:110px; height:110px; background:#111; border:1px solid #1a1a1a; font-size:9px; color:#333; text-align:center; line-height:110px; display:inline-block; }
+  img.crop { width:150px; height:150px; object-fit:cover; border:1px solid #222; display:block; }
+  img.snap { width:100%; border:1px solid #1a1a1a; display:block; max-height:280px; object-fit:cover; }
+  .no-img { width:150px; height:150px; background:#111; border:1px solid #1a1a1a; font-size:9px; color:#333; text-align:center; line-height:150px; display:inline-block; }
 </style>
 </head>
 <body>
@@ -39,9 +39,6 @@
 
   <!-- Meta -->
   <div style="font-size:10px;color:#555;margin-bottom:7px;">{{ package.location }} &nbsp;&middot;&nbsp; {{ package.timestamp.strftime('%Y-%m-%d %H:%M UTC') }} &nbsp;&middot;&nbsp; REF: {{ package.incident_id[:8] }}</div>
-
-  <!-- Activity -->
-  <div style="font-size:11px;color:#ccc;border-left:2px solid #333;padding-left:8px;margin-bottom:12px;">{{ package.detection.activity_description }}</div>
 
   <!-- Evidence: person (left 50%) | vehicle (right 50%) -->
   <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
