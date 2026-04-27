@@ -95,9 +95,8 @@ def _crop_region(image_b64: str, bbox: BoundingBox) -> str | None:
 
 async def run_detection_agent(image_b64: str) -> DumpingDetection:
     response = await _client.chat.completions.create(
-        model="gpt-4.1",
-        temperature=0.1,
-        max_tokens=1500,
+        model="gpt-5.5",
+        max_completion_tokens=1500,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {

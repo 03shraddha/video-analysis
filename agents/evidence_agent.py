@@ -7,9 +7,11 @@ import uuid
 import base64
 import json
 import logging
+import ssl
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from datetime import datetime
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
@@ -149,22 +151,25 @@ def _send_email(package: EvidencePackage, snapshot_b64: str, repeat_info: dict) 
         logger.error("GMAIL_APP_PASSWORD not set in .env — email skipped")
         return False
     try:
+        face_b64 = package.detection.persons[0].face_crop_b64 if package.detection.persons else None
+        vehicle_b64 = package.detection.vehicles[0].vehicle_crop_b64 if package.detection.vehicles else None
+
         template = _jinja.get_template("evidence_email.html")
         html_body = template.render(
             package=package,
-            snapshot_b64=snapshot_b64,
-            face_b64=package.detection.persons[0].face_crop_b64 if package.detection.persons else None,
-            vehicle_b64=package.detection.vehicles[0].vehicle_crop_b64 if package.detection.vehicles else None,
+            face_cid="face_crop" if face_b64 else None,
+            vehicle_cid="vehicle_crop" if vehicle_b64 else None,
+            snapshot_cid="snapshot" if snapshot_b64 else None,
             plate=package.detection.vehicles[0].license_plate if package.detection.vehicles else None,
             repeat_info=repeat_info,
             severity_level=package.severity_level,
         )
 
         base_subject = f"Illegal Dumping Detected - {package.location} [{package.incident_id[:8]}]"
-        if repeat_info.get("is_repeat"):
-            subject = f"REPEAT OFFENDER (seen {repeat_info['count']}x) - {base_subject}"
-        else:
-            subject = base_subject
+        subject = (
+            f"REPEAT OFFENDER (seen {repeat_info['count']}x) - {base_subject}"
+            if repeat_info.get("is_repeat") else base_subject
+        )
 
         recipient = (
             config.ESCALATION_EMAIL
@@ -172,14 +177,25 @@ def _send_email(package: EvidencePackage, snapshot_b64: str, repeat_info: dict) 
             else config.RECIPIENT_EMAIL
         )
 
-        msg = MIMEMultipart("alternative")
+        # multipart/related lets HTML reference inline images via cid:
+        msg_related = MIMEMultipart("related")
+        msg_related.attach(MIMEText(html_body, "html"))
+
+        for cid, b64 in [("face_crop", face_b64), ("vehicle_crop", vehicle_b64), ("snapshot", snapshot_b64)]:
+            if b64:
+                img = MIMEImage(base64.b64decode(b64), _subtype="jpeg")
+                img.add_header("Content-ID", f"<{cid}>")
+                img.add_header("Content-Disposition", "inline", filename=f"{cid}.jpg")
+                msg_related.attach(img)
+
+        msg = MIMEMultipart("mixed")
         msg["Subject"] = subject
         msg["From"] = config.FROM_EMAIL
         msg["To"] = recipient
-        msg.attach(MIMEText(html_body, "html"))
+        msg.attach(msg_related)
 
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ctx) as server:
             server.login(config.FROM_EMAIL, config.GMAIL_APP_PASSWORD)
             server.send_message(msg)
 

@@ -219,8 +219,10 @@ function updateDetectionPanel(msg) {
   // Build detail rows
   let rows = '';
   if (person) {
-    rows += row('CLOTHING', person.clothing || '-', '');
-    rows += row('PERSON', person.physical || '-', '');
+    const who = (person.physical || '').split(/[\s,]+/).filter(Boolean).slice(0, 1).join(' ');
+    const what = (person.clothing || '').split(/[\s,]+/).filter(Boolean).slice(0, 2).join(' ');
+    const personSummary = [who, what].filter(Boolean).join(', ') || '-';
+    rows += row('PERSON', personSummary, '');
   }
   if (vehicle) {
     rows += row('PLATE', vehicle.plate || '-', vehicle.plate ? 'plate' : '');
