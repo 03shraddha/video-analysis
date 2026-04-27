@@ -78,6 +78,7 @@ class AnalyzeRequest(BaseModel):
     image_base64: str
     audio_base64: str
     session_id: str = "default"
+    frame_id: str = ""  # client-assigned ID so WS bbox_update can reference the exact analyzed frame
 
 
 # --- Routes ---
@@ -152,6 +153,7 @@ async def analyze(req: AnalyzeRequest):
         # Broadcast bbox updates for live canvas overlay
         await ws_manager.broadcast({
             "type": "bbox_update",
+            "frame_id": req.frame_id,  # echoed so client can look up the exact analyzed frame
             "boxes": [b.model_dump() for b in detection.bboxes],
             "detection": {
                 "dumping_detected": detection.dumping_detected,

@@ -130,13 +130,24 @@ function connectWS() {
 }
 connectWS();
 
+let _boxClearTimer = null;
+
 function handleMessage(msg) {
   if (msg.type === 'agent_status') {
     updatePipeDot(msg.agent, msg.state);
     if (msg.guardrail_skips !== undefined)
       document.getElementById('guardrailSkips').textContent = msg.guardrail_skips;
   }
-  if (msg.type === 'bbox_update')  { drawBoxes(msg.boxes); updateDetectionPanel(msg); }
+  if (msg.type === 'bbox_update') {
+    // Look up the exact frame that was sent for this analysis.
+    // Falls back to lastSentFrameB64 if frame_id is missing/expired.
+    const frameB64 = (msg.frame_id && _frameStore[msg.frame_id]) || lastSentFrameB64;
+    drawBoxes(msg.boxes, frameB64);
+    updateDetectionPanel(msg);
+    // Auto-clear boxes after 4s so stale overlays don't accumulate
+    clearTimeout(_boxClearTimer);
+    _boxClearTimer = setTimeout(() => ctx.clearRect(0, 0, overlay.width, overlay.height), 4000);
+  }
   if (msg.type === 'incident')     addIncidentRow(msg);
 }
 
@@ -182,17 +193,16 @@ function _renderBoxes(boxes) {
   });
 }
 
-function drawBoxes(boxes) {
+function drawBoxes(boxes, frameB64) {
   syncCanvas();
   ctx.clearRect(0, 0, overlay.width, overlay.height);
-  // Draw the analyzed frame so boxes match the actual content
-  if (lastSentFrameB64 && boxes.length > 0) {
+  if (frameB64 && boxes.length > 0) {
     const img = new Image();
     img.onload = () => {
       ctx.drawImage(img, 0, 0, overlay.width, overlay.height);
       _renderBoxes(boxes);
     };
-    img.src = `data:image/jpeg;base64,${lastSentFrameB64}`;
+    img.src = `data:image/jpeg;base64,${frameB64}`;
   } else {
     _renderBoxes(boxes);
   }
@@ -291,6 +301,12 @@ let frameCount = 0;
 let lastSentFrameB64 = null;
 const CAPTURE_INTERVAL_MS = 2500;
 
+// Frame store: frameId → imageB64 so bbox_update can draw boxes on
+// the EXACT frame that was analyzed, not whichever was captured most recently.
+let _frameIdCounter = 0;
+const _frameStore = {};
+const _FRAME_STORE_MAX = 6;
+
 async function startCamera() {
   try {
     // Try video+audio first, fall back to video-only if mic unavailable
@@ -330,6 +346,12 @@ async function captureAndSend() {
   const imageB64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
   lastSentFrameB64 = imageB64;
 
+  // Store frame for correlation with incoming bbox_update WS message
+  const frameId = String(++_frameIdCounter);
+  _frameStore[frameId] = imageB64;
+  const storeKeys = Object.keys(_frameStore).map(Number).sort((a, b) => a - b);
+  if (storeKeys.length > _FRAME_STORE_MAX) delete _frameStore[String(storeKeys[0])];
+
   // Collect audio
   let audioB64 = '';
   if (audioChunks.length > 0) {
@@ -357,6 +379,7 @@ async function captureAndSend() {
         image_base64: imageB64,
         audio_base64: audioB64,
         session_id: 'browser-session',
+        frame_id: frameId,
       }),
     });
   } catch (_) { /* network hiccup - skip frame */ }
