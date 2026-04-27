@@ -17,6 +17,7 @@
     <div><span class="status-dot" id="statusDot"></span><span id="statusText">connecting</span></div>
     <div>frames <span class="val" id="frameCount">0</span></div>
     <div>incidents <span class="val" id="incidentCount">0</span></div>
+    <div title="expensive vision calls skipped by guardrail">skips <span class="val" id="guardrailSkips">0</span></div>
     <div id="clock" class="val">--:--:--</div>
   </div>
 </header>
@@ -67,6 +68,11 @@
       <div class="pipe-step">
         <div class="pipe-dot" id="dot-Capture"></div>
         <span class="pipe-name">capture</span>
+      </div>
+      <span class="pipe-arrow">&#8594;</span>
+      <div class="pipe-step">
+        <div class="pipe-dot" id="dot-Guardrail"></div>
+        <span class="pipe-name">guardrail</span>
       </div>
       <span class="pipe-arrow">&#8594;</span>
       <div class="pipe-step">
@@ -125,7 +131,11 @@ function connectWS() {
 connectWS();
 
 function handleMessage(msg) {
-  if (msg.type === 'agent_status') updatePipeDot(msg.agent, msg.state);
+  if (msg.type === 'agent_status') {
+    updatePipeDot(msg.agent, msg.state);
+    if (msg.guardrail_skips !== undefined)
+      document.getElementById('guardrailSkips').textContent = msg.guardrail_skips;
+  }
   if (msg.type === 'bbox_update')  { drawBoxes(msg.boxes); updateDetectionPanel(msg); }
   if (msg.type === 'incident')     addIncidentRow(msg);
 }
