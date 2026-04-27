@@ -44,21 +44,21 @@
     <div class="detection-panel" id="detectionPanel">
       <div class="panel-title">detection panel</div>
       <div class="crops-row">
-        <div>
+        <div class="crop-item">
           <div class="crop-box" id="faceBox">
             <div class="no-img">no<br>face</div>
           </div>
           <div class="crop-label">face</div>
         </div>
-        <div>
+        <div class="crop-item">
           <div class="crop-box" id="vehicleBox">
             <div class="no-img">no<br>vehicle</div>
           </div>
           <div class="crop-label">vehicle</div>
         </div>
-        <div class="detail-grid" id="detailGrid">
-          <div class="no-detection">waiting...</div>
-        </div>
+      </div>
+      <div class="detail-grid" id="detailGrid">
+        <div class="no-detection">waiting...</div>
       </div>
     </div>
 
@@ -150,22 +150,18 @@ function syncCanvas() {
   overlay.height = video.videoHeight || overlay.parentElement.clientHeight;
 }
 
-function drawBoxes(boxes) {
-  syncCanvas();
-  ctx.clearRect(0, 0, overlay.width, overlay.height);
+function _renderBoxes(boxes) {
   boxes.forEach(box => {
     const x = box.x * overlay.width;
     const y = box.y * overlay.height;
     const w = box.w * overlay.width;
     const h = box.h * overlay.height;
-    // Light-theme colors: person=red, face=blue, vehicle=amber
     const color = box.label === 'person' ? '#e53e3e'
                 : box.label === 'face'   ? '#3182ce'
                 : '#d69e2e';
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(x, y, w, h);
-    // Label chip — filled with color, white text so it reads on light bg
     ctx.fillStyle = color;
     ctx.font = '11px JetBrains Mono, monospace';
     const label = `${box.label} ${Math.round(box.confidence * 100)}%`;
@@ -174,6 +170,22 @@ function drawBoxes(boxes) {
     ctx.fillStyle = '#ffffff';
     ctx.fillText(label, x + 5, y - 4);
   });
+}
+
+function drawBoxes(boxes) {
+  syncCanvas();
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  // Draw the analyzed frame so boxes match the actual content
+  if (lastSentFrameB64 && boxes.length > 0) {
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, overlay.width, overlay.height);
+      _renderBoxes(boxes);
+    };
+    img.src = `data:image/jpeg;base64,${lastSentFrameB64}`;
+  } else {
+    _renderBoxes(boxes);
+  }
 }
 
 // ─── Detection panel update ──────────────────────────────
@@ -228,7 +240,7 @@ function updateDetectionPanel(msg) {
 function row(key, val, cls) {
   return `<div class="detail-row">
     <span class="detail-key">${key}</span>
-    <span class="detail-val ${cls}">${val}</span>
+    <span class="detail-val ${cls}" title="${val}">${val}</span>
   </div>`;
 }
 
@@ -264,20 +276,31 @@ let stream = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let frameCount = 0;
-const CAPTURE_INTERVAL_MS = 700;
+let lastSentFrameB64 = null;
+const CAPTURE_INTERVAL_MS = 2500;
 
 async function startCamera() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    // Try video+audio first, fall back to video-only if mic unavailable
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (_) {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
     video.srcObject = stream;
     document.getElementById('feedPlaceholder').style.display = 'none';
 
-    // Audio capture
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-    mediaRecorder.start(CAPTURE_INTERVAL_MS);
+    // Audio capture — isolated so a failure never blocks frame capture
+    try {
+      const mimeType = ['audio/webm', 'audio/ogg', ''].find(t => !t || MediaRecorder.isTypeSupported(t));
+      mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.start(CAPTURE_INTERVAL_MS);
+    } catch (audioErr) {
+      console.warn('Audio capture unavailable, running video-only:', audioErr);
+    }
 
-    // Frame + audio send loop
+    // Frame send loop — always starts regardless of audio status
     setInterval(captureAndSend, CAPTURE_INTERVAL_MS);
   } catch (err) {
     document.getElementById('feedPlaceholder').textContent = `camera error: ${err.message}`;
@@ -293,6 +316,7 @@ async function captureAndSend() {
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   const imageB64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+  lastSentFrameB64 = imageB64;
 
   // Collect audio
   let audioB64 = '';

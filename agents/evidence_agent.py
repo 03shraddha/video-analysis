@@ -1,5 +1,5 @@
 """
-Evidence Agent — saves incident files + sends HTML email via SendGrid.
+Evidence Agent — saves incident files + sends HTML email via Gmail SMTP.
 Saves: full snapshot, face crop, vehicle crop, and JSON metadata.
 Email includes embedded images (inline base64, no attachments needed).
 """
@@ -7,10 +7,11 @@ import uuid
 import base64
 import json
 import logging
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import datetime
 from pathlib import Path
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, MimeType
 from jinja2 import Environment, FileSystemLoader
 from models.schemas import DumpingDetection, AudioClue, EvidencePackage
 import config
@@ -144,6 +145,9 @@ def _save_evidence_files(
 
 
 def _send_email(package: EvidencePackage, snapshot_b64: str, repeat_info: dict) -> bool:
+    if not config.GMAIL_APP_PASSWORD:
+        logger.error("GMAIL_APP_PASSWORD not set in .env — email skipped")
+        return False
     try:
         template = _jinja.get_template("evidence_email.html")
         html_body = template.render(
@@ -156,30 +160,33 @@ def _send_email(package: EvidencePackage, snapshot_b64: str, repeat_info: dict) 
             severity_level=package.severity_level,
         )
 
-        # Prepend repeat-offender warning to the subject when applicable
-        base_subject = f"⚠️ Illegal Dumping Detected — {package.location} [{package.incident_id[:8]}]"
+        base_subject = f"Illegal Dumping Detected - {package.location} [{package.incident_id[:8]}]"
         if repeat_info.get("is_repeat"):
-            subject = f"⚠️ REPEAT OFFENDER (seen {repeat_info['count']}x) — {base_subject}"
+            subject = f"REPEAT OFFENDER (seen {repeat_info['count']}x) - {base_subject}"
         else:
             subject = base_subject
 
-        # Route critical/high severity to escalation address
         recipient = (
             config.ESCALATION_EMAIL
             if package.severity_level in ("CRITICAL", "HIGH")
             else config.RECIPIENT_EMAIL
         )
-        message = Mail(
-            from_email=config.FROM_EMAIL,
-            to_emails=recipient,
-            subject=subject,
-            html_content=html_body,
-        )
-        sg = SendGridAPIClient(config.SENDGRID_API_KEY)
-        response = sg.send(message)
-        return response.status_code in (200, 202)
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = config.FROM_EMAIL
+        msg["To"] = recipient
+        msg.attach(MIMEText(html_body, "html"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(config.FROM_EMAIL, config.GMAIL_APP_PASSWORD)
+            server.send_message(msg)
+
+        logger.info(f"Email sent to {recipient} for incident {package.incident_id[:8]}")
+        return True
     except Exception as e:
-        logger.error(f"SendGrid error: {e}")
+        logger.error(f"Gmail SMTP error: {e}")
         return False
 
 

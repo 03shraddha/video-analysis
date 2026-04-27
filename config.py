@@ -5,6 +5,7 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "")
 LOCATION_LABEL = os.getenv("LOCATION_LABEL", "Unknown Location")
@@ -28,5 +29,3 @@ def classify_severity(dumped_material: str) -> str:
 
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY is not set in .env")
-if not SENDGRID_API_KEY:
-    raise ValueError("SENDGRID_API_KEY is not set in .env")
